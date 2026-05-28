@@ -1,24 +1,21 @@
 # `useSession().value.data` typed as non-nullable when `fetchOptions.throw = true`
 
-With `createAuthClient({ fetchOptions: { throw: true } })`, `useSession().value.data` is typed as `SessionData` (the `null` branch is stripped). The atom backing `useSession` still emits `null` at runtime — initial value and on 401 — so consumers either get false-positive `no-unnecessary-condition` lint on legitimate null checks, or crash with `Cannot read properties of null` if they trust the type.
+> Filed as [better-auth/better-auth#9781](https://github.com/better-auth/better-auth/issues/9781).
 
-Same conditional is used for React/Svelte/Solid/vanilla, so it should reproduce on all clients.
+### Reproduction
 
-## Reproduction
+Minimal repro repo: https://github.com/NinjaKinshasa/better-auth-usesession-typing-repro
 
-https://github.com/NinjaKinshasa/better-auth-usesession-typing-repro
-
-```ts
+```javascript
 import { createAuthClient } from "better-auth/vue";
 
 const client = createAuthClient({ fetchOptions: { throw: true } });
 const session = client.useSession();
 
-// Both fields hold `null` at runtime (atom initial value):
 console.log(session.value.data);  // → null
 console.log(session.value.error); // → null
 
-// But TypeScript only typed one of them correctly:
+// But TS only typed one of them correctly:
 //   session.value.error : BetterFetchError | null    ✓
 //   session.value.data  : { user; session }          ✗ missing `| null`
 
@@ -26,19 +23,36 @@ console.log(session.value.error); // → null
 const _: typeof session.value.data = null;
 ```
 
-`pnpm test` prints `null` twice and `tsc` is silent — because `@ts-expect-error` is consumed on the last line. Remove it and `tsc` reports `TS2322: Type 'null' is not assignable to type '{ user; session }'`.
+### Current vs. Expected behavior
 
-## Root cause
+**Current:** with `fetchOptions: { throw: true }`, `useSession().value.data` is typed as `SessionData` (no `| null`). But the underlying atom (`dist/client/query.mjs`, `useAuthQuery`) initialises with `data: null` and resets to `null` on 401 — runtime is `T | null`.
 
-The atom (`dist/client/query.mjs`, `useAuthQuery`) initialises with `data: null` and re-sets `data: null` on 401, independent of `fetchOptions.throw`:
+**Expected:** `data` should always be `SessionData | null`, regardless of `fetchOptions.throw`.
 
-```js
-const value = atom({ data: null, error: null, isPending: true, ... });
-// ...
-value.set({ error: context.error, data: isUnauthorized ? null : value.get().data, ... });
+The conditional at `dist/client/vue/index.d.mts:19-31` (and React/Svelte/Solid/vanilla equivalents) drops the `null` branch — see Fix.
+
+### What version of Better Auth are you using?
+
+1.6.11
+
+### System info
+
+```json
+{
+  "system": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "release": "24.6.0"
+  },
+  "node": { "version": "v22.15.0" },
+  "frameworks": [{ "name": "vue", "version": "^3.5.0" }],
+  "betterAuth": { "version": "1.6.11" }
+}
 ```
 
-But `useSession`'s declared `data` type in `dist/client/vue/index.d.mts` is derived from `InferClientAPI<Option>['getSession']`'s return. With `throw: true`, `getSession()` returns `T` directly (not `{ data, error }`), so the conditional falls through to `Res extends Record<string, any> ? Res : never` and drops the `null` branch.
+### Which area(s) are affected?
+
+Client
 
 ## Fix
 
@@ -66,7 +80,3 @@ Decouple `useSession`'s `data` type from `getSession`'s return — always union 
 ```
 
 Same change applies to the `useFetch` overload below it and to the equivalent files for React/Svelte/Solid/vanilla.
-
-## Versions
-
-`better-auth` 1.6.11 · `typescript` 5.9.3 (strict) · `vue` 3.5.35 · Node 22 · macOS
