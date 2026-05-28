@@ -6,8 +6,7 @@ Same conditional is used for React/Svelte/Solid/vanilla, so it should reproduce 
 
 ## Reproduction
 
-<!-- TODO: replace with the GitHub URL once pushed -->
-https://github.com/<your-username>/repro-better-auth
+https://github.com/NinjaKinshasa/better-auth-usesession-typing-repro
 
 ```ts
 import { createAuthClient } from "better-auth/vue";
